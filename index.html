@@ -249,6 +249,7 @@ h1 span{color:var(--lav); font-style:italic; font-weight:500}
 .cm-comp-txt{font-family:var(--sans); font-size:11px; font-weight:700; fill:var(--muted)}
 .cm-scale-bar,.cm-scale-tick{stroke:var(--ink); stroke-width:2; stroke-linecap:round; opacity:.7}
 .cm-scale-txt{font-family:var(--mono); font-size:11px; fill:var(--muted)}
+.cm-attr{font-family:var(--sans); font-size:9.5px; fill:var(--faint); opacity:.8}
 .cm-poi{cursor:pointer}
 .cm-halo{fill:var(--paper); opacity:.92}
 .cm-ring{fill:none; stroke:#fff; stroke-width:2}
@@ -276,6 +277,14 @@ h1 span{color:var(--lav); font-style:italic; font-weight:500}
 .cm-bg-water{fill:var(--wave); fill-opacity:.12; stroke:var(--wave); stroke-opacity:.4; stroke-width:1.5}
 .cm-bg-river{fill:none; stroke:var(--wave); stroke-width:3; stroke-linecap:round; stroke-linejoin:round; stroke-opacity:.3}
 .cm-bg-sea-label{font-family:var(--serif); font-style:italic; font-size:16px; fill:var(--coast); opacity:.6}
+/* fond réel OpenStreetMap (rivières, eau, littoral, parcs, axes) */
+.cm-bg-green{fill:var(--teal); fill-opacity:.10}
+.cm-bg-waterbody{fill:var(--wave); fill-opacity:.30; stroke:var(--wave); stroke-opacity:.5; stroke-width:1}
+.cm-bg-riverline{fill:none; stroke:var(--wave); stroke-width:2.4; stroke-opacity:.6; stroke-linecap:round; stroke-linejoin:round}
+.cm-bg-coast{fill:none; stroke:var(--coast); stroke-width:2.2; stroke-opacity:.7; stroke-linejoin:round}
+.cm-bg-sea{fill:var(--wave); fill-opacity:.16}
+.cm-bg-road{fill:none; stroke:var(--muted); stroke-width:1; stroke-opacity:.22; stroke-linecap:round; stroke-linejoin:round}
+.cm-lead{stroke:var(--faint); stroke-width:1; stroke-opacity:.8}
 
 /* ---- glyphes dans les fiches ---- */
 .card-head h3{display:flex; align-items:center; gap:9px}
@@ -465,6 +474,7 @@ h1 span{color:var(--lav); font-style:italic; font-weight:500}
 </div>
 
 <script src="photos-data.js"></script>
+<script src="citymap-data.js"></script>
 <script>
 
 
@@ -1388,7 +1398,7 @@ DATA.forEach(it => { const e = EXTRA[it.id]; if (e) Object.assign(it, e); });
     kutaisi:  { river: true },
     batumi:   { sea: true }
   };
-  function cityBackdrop(key) {
+  function proceduralBackdrop(key) {
     const VBW = 1000, x0 = 14, x1 = VBW - 14;
     const sc = CITY_SCENE[key] || {};
     let s = `<g class="cm-bg" aria-hidden="true">`;
@@ -1423,6 +1433,29 @@ DATA.forEach(it => { const e = EXTRA[it.id]; if (e) Object.assign(it, e); });
     }
     if (sc.river) s += `<path d="M ${x0} 402 C 230 366 330 458 500 424 S 770 372 ${x1} 408" class="cm-bg-river"/>`;
     return s + `</g>`;
+  }
+  // Fond de carte réel (OpenStreetMap) projeté comme les points, clippé au cadre.
+  function cityBaseLayers(key, proj) {
+    const VBW = 1000, VBH = 560;
+    const cm = (window.CITYMAPS || {})[key];
+    if (!cm) return proceduralBackdrop(key);
+    const P = line => line.map(proj);
+    const len = pts => { let L = 0; for (let i = 1; i < pts.length; i++) L += Math.hypot(pts[i][0] - pts[i-1][0], pts[i][1] - pts[i-1][1]); return L; };
+    const dpath = (pts, close) => "M " + pts.map(p => p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" L ") + (close ? " Z" : "");
+    let g = "";
+    (cm.green  || []).forEach(l => { if (l.length < 4) return; const pts = P(l); if (len(pts) < 44) return; g += `<path d="${dpath(pts, true)}" class="cm-bg-green"/>`; });
+    (cm.water  || []).forEach(l => { if (l.length < 3) return; const pts = P(l); if (len(pts) < 16) return; g += `<path d="${dpath(pts, true)}" class="cm-bg-waterbody"/>`; });
+    (cm.roads  || []).forEach(l => { const pts = P(l); if (len(pts) < 24) return; g += `<path d="${dpath(pts, false)}" class="cm-bg-road"/>`; });
+    (cm.rivers || []).forEach(l => { const pts = P(l); if (len(pts) < 10) return; g += `<path d="${dpath(pts, false)}" class="cm-bg-riverline"/>`; });
+    if (cm.coast && cm.coast.length) {
+      // trait de côte réel + vagues façon croquis du côté large (pas de remplissage fragile)
+      cm.coast.forEach(l => { if (l.length >= 2) g += `<path d="${dpath(P(l), false)}" class="cm-bg-coast"/>`; });
+      for (let i = 0; i < 5; i++) { const yy = 110 + i * 90; g += `<path d="M 26 ${yy} q 15 -8 30 0 t 30 0" class="cm-bg-wave"/>`; }
+      g += `<text x="42" y="300" transform="rotate(-90 42 300)" text-anchor="middle" class="cm-bg-sea-label">Mer Noire</text>`;
+    }
+    if (!g) return proceduralBackdrop(key);
+    return `<clipPath id="cmclip"><rect x="12" y="12" width="${VBW - 24}" height="${VBH - 24}" rx="14"/></clipPath>`
+      + `<g clip-path="url(#cmclip)" class="cm-bg" aria-hidden="true">${g}</g>`;
   }
   function renderCityMap(key) {
     const svg = document.getElementById("citymap");
@@ -1475,36 +1508,36 @@ DATA.forEach(it => { const e = EXTRA[it.id]; if (e) Object.assign(it, e); });
     function overlap(a, b){ return !(a.x+a.w < b.x || b.x+b.w < a.x || a.y+a.h < b.y || b.y+b.h < a.y); }
     function placeLabel(cx, cy, text, fs, forced, lines){
       const w = text.length * fs * 0.54 + 8, h = fs * 1.28 * (lines || 1);
-      const cands = [
-        { x: cx + 11,     y: cy - h/2,    anchor:"start",  tx: cx + 12 },
-        { x: cx - 11 - w, y: cy - h/2,    anchor:"end",    tx: cx - 12 },
-        { x: cx - w/2,    y: cy - 12 - h, anchor:"middle", tx: cx },
-        { x: cx - w/2,    y: cy + 12,     anchor:"middle", tx: cx }
+      const dirs = [
+        { dx: 1,    dy: 0,    a:"start"  }, { dx:-1,    dy: 0,    a:"end"    },
+        { dx: 0.82, dy:-0.7,  a:"start"  }, { dx:-0.82, dy:-0.7,  a:"end"    },
+        { dx: 0.82, dy: 0.7,  a:"start"  }, { dx:-0.82, dy: 0.7,  a:"end"    },
+        { dx: 0,    dy:-1,    a:"middle" }, { dx: 0,    dy: 1,    a:"middle" }
       ];
-      const inFrame = c => !(c.x < 8 || c.y < 5 || c.x + w > VBW - 8 || c.y + h > VBH - 6);
-      const ty = c => c.y + fs * 0.98; // ligne de base de la 1re ligne
-      for (const c of cands) {                       // 1) dans le cadre, sans collision
-        if (!inFrame(c)) continue;
-        const box = { x: c.x, y: c.y, w, h };
-        if (!placed.some(p => overlap(p, box))) { placed.push(box); return { tx: c.tx, ty: ty(c), anchor: c.anchor }; }
-      }
-      if (!forced) return null;
-      for (const c of cands) {                       // 2) forcé : un côté dans le cadre, même s'il chevauche
-        if (!inFrame(c)) continue;
-        const box = { x: c.x, y: c.y, w, h };
-        placed.push(box); return { tx: c.tx, ty: ty(c), anchor: c.anchor };
-      }
-      const anchor = cx > VBW*0.58 ? "end" : (cx < VBW*0.42 ? "start" : "middle"); // 3) trop large : ancré au point, ramené dans le cadre
-      const tx = Math.max(10, Math.min(VBW-10, cx));
-      placed.push({ x: anchor==="end" ? cx-w : (anchor==="start" ? cx : cx-w/2), y: cy-h/2, w, h });
-      return { tx, ty: cy + fs*0.34, anchor };
+      const radii = [13, 25, 39, 56, 78, 104];
+      const boxOf = (ax, ay, a) => ({ x: a==="start" ? ax : a==="end" ? ax - w : ax - w/2, y: ay - h/2, w, h });
+      const inFrame = b => !(b.x < 10 || b.y < 6 || b.x + b.w > VBW - 10 || b.y + b.h > VBH - 8);
+      const attempt = collide => {
+        for (const r of radii) for (const d of dirs) {
+          const ax = cx + d.dx * r, ay = cy + d.dy * r, box = boxOf(ax, ay, d.a);
+          if (!inFrame(box)) continue;
+          if (collide && placed.some(p => overlap(p, box))) continue;
+          placed.push(box);
+          const near = d.a === "start" ? ax - 3 : d.a === "end" ? ax + 3 : ax;
+          const lead = r > 16 ? { x1: cx, y1: cy, x2: near, y2: ay } : null;
+          return { tx: ax, ty: ay - h/2 + fs * 0.95, anchor: d.a, lead };
+        }
+        return null;
+      };
+      return attempt(true) || (forced ? attempt(false) : null);
     }
 
     let layers = "";
 
     // fond papier + cadre croquis + boussole + échelle
     layers += `<rect x="6" y="6" width="${VBW-12}" height="${VBH-12}" rx="18" class="cm-paper"/>`;
-    layers += cityBackdrop(key);
+    const proj = c => [Xr({ lat: c[0], lng: c[1] }), Yr({ lat: c[0], lng: c[1] })];
+    layers += cityBaseLayers(key, proj);
     layers += `<rect x="12" y="12" width="${VBW-24}" height="${VBH-24}" rx="14" class="cm-frame"/>`;
     layers += `<g class="cm-compass" transform="translate(${VBW-60},58)">
         <circle r="20" class="cm-comp-ring"/>
@@ -1516,33 +1549,21 @@ DATA.forEach(it => { const e = EXTRA[it.id]; if (e) Object.assign(it, e); });
         <line x1="0" y1="-4" x2="0" y2="4" class="cm-scale-tick"/>
         <line x1="${barPx.toFixed(1)}" y1="-4" x2="${barPx.toFixed(1)}" y2="4" class="cm-scale-tick"/>
         <text x="${(barPx/2).toFixed(1)}" y="16" text-anchor="middle" class="cm-scale-txt">${barKm} km</text></g>`;
+    if ((window.CITYMAPS || {})[key]) layers += `<text x="${VBW-15}" y="${VBH-13}" text-anchor="end" class="cm-attr">© OpenStreetMap</text>`;
 
-    // POIs (triés par note pour prioriser les labels), dots cliquables
-    const dotsSorted = pois.slice().sort((a,b)=>(b.rating||0)-(a.rating||0));
-    let dotsHtml = "";
-    dotsSorted.forEach(p => {
-      const x = X(p), y = Y(p);
-      const far = isFar(p);
-      const nm = (far ? "↗ " : "") + p.name;
-      const lbl = placeLabel(x, y, nm, 14.5, false);
-      const label = lbl ? `<text x="${lbl.tx.toFixed(1)}" y="${lbl.ty.toFixed(1)}" text-anchor="${lbl.anchor}" class="cm-label">${nm}</text>` : "";
-      dotsHtml += `<g class="cm-poi cm-${p.cat}${far ? " cm-far" : ""}" data-id="${p.id}" role="button" tabindex="0" aria-label="${p.name}">
-          <title>${p.name}${far ? " (plus loin, hors du centre)" : ""}</title>
-          <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="11" class="cm-halo"/>
-          <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="6.5" class="cm-ring"/>
-          <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4.5" class="cm-dot"/>
-          ${label}
-        </g>`;
-    });
+    // positions projetées ; on réserve l'emplacement des pastilles pour que les libellés ne s'y posent pas
+    const homePos = homes.map(h => ({ h, x: X(h), y: Y(h) }));
+    const poiPos = pois.slice().sort((a,b)=>(b.rating||0)-(a.rating||0)).map(p => ({ p, x: X(p), y: Y(p), far: isFar(p) }));
+    [...homePos, ...poiPos].forEach(o => placed.push({ x: o.x - 10, y: o.y - 10, w: 20, h: 20 }));
+    const leadEl = lbl => lbl && lbl.lead ? `<line x1="${lbl.lead.x1.toFixed(1)}" y1="${lbl.lead.y1.toFixed(1)}" x2="${lbl.lead.x2.toFixed(1)}" y2="${lbl.lead.y2.toFixed(1)}" class="cm-lead"/>` : "";
 
-    // logements (placés en priorité, toujours étiquetés ; libellé sur 2 lignes)
+    // logements (étiquetés en priorité, 2 lignes, reliés par une fine ligne de rappel)
     let homeHtml = "";
-    homes.forEach(h => {
-      const x = X(h), y = Y(h);
+    homePos.forEach(({ h, x, y }) => {
       const line1 = (homes.length > 1 ? h.label.replace("Logement", "Logt") + " · " : "") + h.addr;
       const line2 = h.dates;
       const longer = line1.length >= line2.length ? line1 : line2;
-      const lbl = placeLabel(x, y - 15, longer, 13.5, true, 2);
+      const lbl = placeLabel(x, y - 14, longer, 13.5, true, 2);
       const label = lbl
         ? `<text x="${lbl.tx.toFixed(1)}" y="${lbl.ty.toFixed(1)}" text-anchor="${lbl.anchor}" class="cm-home-label">`
           + `<tspan x="${lbl.tx.toFixed(1)}">${line1}</tspan>`
@@ -1550,8 +1571,25 @@ DATA.forEach(it => { const e = EXTRA[it.id]; if (e) Object.assign(it, e); });
         : "";
       homeHtml += `<g class="cm-home" data-home="${h.stay}" role="button" tabindex="0" aria-label="Logement : ${h.addr}, ${h.dates}">
           <title>Votre logement — ${h.addr} (${h.dates})</title>
+          ${leadEl(lbl)}
           <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="15" class="cm-home-halo"/>
           <g transform="translate(${(x-11).toFixed(1)},${(y-12).toFixed(1)})"><svg viewBox="0 0 24 24" width="22" height="22" class="cm-home-ic">${G.house}</svg></g>
+          ${label}
+        </g>`;
+    });
+
+    // POIs (pastilles cliquables + libellés déportés reliés par une fine ligne)
+    let dotsHtml = "";
+    poiPos.forEach(({ p, x, y, far }) => {
+      const nm = (far ? "↗ " : "") + p.name;
+      const lbl = placeLabel(x, y, nm, 14.5, false);
+      const label = lbl ? `<text x="${lbl.tx.toFixed(1)}" y="${lbl.ty.toFixed(1)}" text-anchor="${lbl.anchor}" class="cm-label">${nm}</text>` : "";
+      dotsHtml += `<g class="cm-poi cm-${p.cat}${far ? " cm-far" : ""}" data-id="${p.id}" role="button" tabindex="0" aria-label="${p.name}">
+          <title>${p.name}${far ? " (plus loin, hors du centre)" : ""}</title>
+          ${leadEl(lbl)}
+          <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="11" class="cm-halo"/>
+          <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="6.5" class="cm-ring"/>
+          <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4.5" class="cm-dot"/>
           ${label}
         </g>`;
     });
