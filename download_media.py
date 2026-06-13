@@ -22,13 +22,14 @@ import os
 import re
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
 # --- Réglages -------------------------------------------------------------
 MAX_PAR_LIEU = 6          # nb max de photos téléchargées par lieu
 LARGEUR = 1024            # largeur demandée (px)
-PAUSE = 0.4               # pause entre requêtes (politesse envers Wikimedia)
+PAUSE = 1.0               # pause entre requêtes (politesse envers Wikimedia)
 UA = "GeorgieTripMap/1.0 (carte de voyage perso, usage non commercial)"
 EXT_OK = (".jpg", ".jpeg", ".png", ".webp")
 
@@ -71,16 +72,32 @@ WIKITITLE = {
 }
 
 
+def _request(url, headers, timeout, binary):
+    """Requête HTTP avec retries + backoff sur 429/503 (limites Wikimedia)."""
+    req = urllib.request.Request(url, headers=headers)
+    delay = 2.0
+    for attempt in range(6):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                raw = r.read()
+                return raw if binary else json.loads(raw.decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 503) and attempt < 5:
+                ra = (e.headers.get("Retry-After") or "").strip()
+                wait = float(ra) if ra.isdigit() else delay
+                print("    … HTTP %d — nouvelle tentative dans %.0fs" % (e.code, wait))
+                time.sleep(wait)
+                delay = min(delay * 2, 30)
+                continue
+            raise
+
+
 def http_json(url):
-    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.loads(r.read().decode("utf-8"))
+    return _request(url, {"User-Agent": UA, "Accept": "application/json"}, 30, False)
 
 
 def http_bytes(url):
-    req = urllib.request.Request(url, headers={"User-Agent": UA})
-    with urllib.request.urlopen(req, timeout=60) as r:
-        return r.read()
+    return _request(url, {"User-Agent": UA}, 60, True)
 
 
 def media_list(lang, title):
@@ -155,6 +172,7 @@ def main():
         names = media_list(lang, title)
         if not names:
             print("    (aucune image trouvée — le bouton proposera un lien)")
+            time.sleep(PAUSE)
             continue
         dest = os.path.join(DOSSIER_PHOTOS, pid)
         os.makedirs(dest, exist_ok=True)
