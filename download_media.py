@@ -45,11 +45,12 @@ SORTIE = os.path.join(ICI, "photos-data.js")
 # --- Articles Wikipédia par lieu (lang:Titre) -----------------------------
 # (doit rester synchrone avec WIKITITLE dans index.html)
 WIKITITLE = {
-    "tb-sameba": "fr:Cathédrale de la Trinité de Tbilissi",
-    "tb-narikala": "fr:Narikala",
-    "tb-kartlis": "fr:Kartlis Deda (Tbilissi)",
+    # Tbilissi
+    "tb-sameba": "en:Holy Trinity Cathedral of Tbilisi",
+    "tb-narikala": "en:Narikala",
+    "tb-kartlis": "en:Kartlis Deda",
     "tb-chronicle": "en:Chronicle of Georgia",
-    "tb-peace": "fr:Pont de la Paix (Tbilissi)",
+    "tb-peace": "en:Bridge of Peace (Tbilisi)",
     "tb-gabriadze": "en:Gabriadze Theater",
     "tb-mtatsminda": "en:Mtatsminda Park",
     "tb-abano": "en:Abanotubani",
@@ -57,19 +58,30 @@ WIKITITLE = {
     "tb-armenian": "en:Saint George's Cathedral, Tbilisi",
     "tb-anchiskhati": "en:Anchiskhati Basilica",
     "tb-didgori": "en:Battle of Didgori",
-    "mt-svet": "fr:Cathédrale Svetitskhoveli",
+    "tb-fabrika": "en:Fabrika (Tbilisi)",
+    "tb-q-sololaki": "en:Sololaki",
+    # Mtskheta
+    "mt-svet": "en:Svetitskhoveli Cathedral",
     "mt-jvari": "en:Jvari (monastery)",
+    # Ananuri / route
     "an-fort": "en:Ananuri",
-    "kz-gergeti": "fr:Église de la Trinité de Guergueti",
+    "an-jinvali": "en:Zhinvali Reservoir",
+    # Kazbegi
+    "kz-gergeti": "en:Gergeti Trinity Church",
     "kz-dariali": "en:Dariali Gorge",
+    "kz-truso": "en:Truso Valley",
+    # Borjomi
     "bo-np": "en:Borjomi-Kharagauli National Park",
     "bo-park": "en:Borjomi",
-    "ku-bagrati": "fr:Cathédrale de Bagrati",
-    "ku-gelati": "fr:Monastère de Ghélati",
+    # Koutaïssi
+    "ku-bagrati": "en:Bagrati Cathedral",
+    "ku-gelati": "en:Gelati Monastery",
     "ku-prometheus": "en:Prometheus Cave",
     "ku-okatse": "en:Okatse Canyon",
     "ku-martvili": "en:Martvili Canyon",
     "ku-sataplia": "en:Sataplia Nature Reserve",
+    "ku-botanic": "en:Kutaisi Botanical Garden",
+    # Batumi
     "ba-alinino": "en:Ali and Nino (sculpture)",
     "ba-botanic": "en:Batumi Botanical Garden",
     "ba-boulevard": "en:Batumi Boulevard",
@@ -104,25 +116,60 @@ def http_bytes(url):
     return _request(url, {"User-Agent": UA}, 60, True)
 
 
-def media_list(lang, title):
-    """Liste des fichiers image d'un article (REST media-list)."""
-    t = urllib.parse.quote(title.replace(" ", "_"), safe="")
-    url = "https://%s.wikipedia.org/api/rest_v1/page/media-list/%s" % (lang, t)
+def _resolve_title(lang, title):
+    """Résout le titre exact (suit redirections + normalisation). None si absent."""
+    url = ("https://%s.wikipedia.org/w/api.php?action=query&format=json&redirects=1&titles=%s"
+           % (lang, urllib.parse.quote(title)))
     try:
-        data = http_json(url)
-    except Exception as e:
-        print("    ! media-list KO (%s)" % e)
-        return []
+        pages = http_json(url).get("query", {}).get("pages", {})
+        page = next(iter(pages.values()))
+        return None if "missing" in page else page.get("title")
+    except Exception:
+        return None
+
+
+def _rest_media(lang, title):
+    t = urllib.parse.quote(title.replace(" ", "_"), safe="")
+    data = http_json("https://%s.wikipedia.org/api/rest_v1/page/media-list/%s" % (lang, t))
     out = []
     for it in data.get("items", []):
-        if it.get("type") != "image":
-            continue
-        ftitle = it.get("title", "")  # ex: "File:Foo.jpg"
-        name = ftitle.split(":", 1)[-1]
-        if not name.lower().endswith(EXT_OK):
-            continue
-        out.append(name)
+        if it.get("type") == "image":
+            name = it.get("title", "").split(":", 1)[-1]
+            if name.lower().endswith(EXT_OK):
+                out.append(name)
     return out
+
+
+def _api_images(lang, title):
+    url = ("https://%s.wikipedia.org/w/api.php?action=query&format=json&prop=images"
+           "&redirects=1&imlimit=80&titles=%s" % (lang, urllib.parse.quote(title)))
+    pages = http_json(url).get("query", {}).get("pages", {})
+    page = next(iter(pages.values()))
+    out = []
+    for im in page.get("images", []):
+        name = im.get("title", "").split(":", 1)[-1]
+        if name.lower().endswith(EXT_OK) and "logo" not in name.lower() and "icon" not in name.lower():
+            out.append(name)
+    return out
+
+
+def media_list(lang, title):
+    """Images d'un article : titre résolu -> REST media-list (soignée) -> repli API images."""
+    canon = _resolve_title(lang, title)
+    if canon is None:
+        print("    (article Wikipédia introuvable)")
+        return []
+    try:
+        imgs = _rest_media(lang, canon)
+        if imgs:
+            return imgs
+    except Exception:
+        pass
+    try:
+        return _api_images(lang, canon)
+    except Exception as e:
+        print("    ! images KO (%s)" % e)
+        return []
 
 
 def licence_credit(filename):
