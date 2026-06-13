@@ -1,0 +1,213 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Télécharge les photos des lieux (depuis Wikimedia Commons) dans photos/<id>/
+et génère photos-data.js, lu par index.html.
+
+À lancer UNE FOIS, sur une machine connectée à Internet :
+
+    python3 download_media.py
+
+Puis committez les dossiers photos/ et le fichier photos-data.js dans votre
+dépôt GitHub. Les photos s'afficheront alors via le bouton « Voir les photos »,
+en ligne (GitHub Pages) comme hors ligne.
+
+Aucune dépendance : uniquement la bibliothèque standard de Python 3.
+Sources : Wikimedia Commons (images sous licence libre — crédit/licence repris
+automatiquement et affichés au clic sur chaque photo).
+"""
+
+import json
+import os
+import re
+import sys
+import time
+import urllib.parse
+import urllib.request
+
+# --- Réglages -------------------------------------------------------------
+MAX_PAR_LIEU = 6          # nb max de photos téléchargées par lieu
+LARGEUR = 1024            # largeur demandée (px)
+PAUSE = 0.4               # pause entre requêtes (politesse envers Wikimedia)
+UA = "GeorgieTripMap/1.0 (carte de voyage perso, usage non commercial)"
+EXT_OK = (".jpg", ".jpeg", ".png", ".webp")
+
+ICI = os.path.dirname(os.path.abspath(__file__))
+DOSSIER_PHOTOS = os.path.join(ICI, "photos")
+DOSSIER_MENUS = os.path.join(ICI, "menus")
+SORTIE = os.path.join(ICI, "photos-data.js")
+
+# --- Articles Wikipédia par lieu (lang:Titre) -----------------------------
+# (doit rester synchrone avec WIKITITLE dans index.html)
+WIKITITLE = {
+    "tb-sameba": "fr:Cathédrale de la Trinité de Tbilissi",
+    "tb-narikala": "fr:Narikala",
+    "tb-kartlis": "fr:Kartlis Deda (Tbilissi)",
+    "tb-chronicle": "en:Chronicle of Georgia",
+    "tb-peace": "fr:Pont de la Paix (Tbilissi)",
+    "tb-gabriadze": "en:Gabriadze Theater",
+    "tb-mtatsminda": "en:Mtatsminda Park",
+    "tb-abano": "en:Abanotubani",
+    "tb-juma": "en:Tbilisi Mosque",
+    "tb-armenian": "en:Saint George's Cathedral, Tbilisi",
+    "tb-anchiskhati": "en:Anchiskhati Basilica",
+    "tb-didgori": "en:Battle of Didgori",
+    "mt-svet": "fr:Cathédrale Svetitskhoveli",
+    "mt-jvari": "en:Jvari (monastery)",
+    "an-fort": "en:Ananuri",
+    "kz-gergeti": "fr:Église de la Trinité de Guergueti",
+    "kz-dariali": "en:Dariali Gorge",
+    "bo-np": "en:Borjomi-Kharagauli National Park",
+    "bo-park": "en:Borjomi",
+    "ku-bagrati": "fr:Cathédrale de Bagrati",
+    "ku-gelati": "fr:Monastère de Ghélati",
+    "ku-prometheus": "en:Prometheus Cave",
+    "ku-okatse": "en:Okatse Canyon",
+    "ku-martvili": "en:Martvili Canyon",
+    "ku-sataplia": "en:Sataplia Nature Reserve",
+    "ba-alinino": "en:Ali and Nino (sculpture)",
+    "ba-botanic": "en:Batumi Botanical Garden",
+    "ba-boulevard": "en:Batumi Boulevard",
+}
+
+
+def http_json(url):
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
+def http_bytes(url):
+    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return r.read()
+
+
+def media_list(lang, title):
+    """Liste des fichiers image d'un article (REST media-list)."""
+    t = urllib.parse.quote(title.replace(" ", "_"), safe="")
+    url = "https://%s.wikipedia.org/api/rest_v1/page/media-list/%s" % (lang, t)
+    try:
+        data = http_json(url)
+    except Exception as e:
+        print("    ! media-list KO (%s)" % e)
+        return []
+    out = []
+    for it in data.get("items", []):
+        if it.get("type") != "image":
+            continue
+        ftitle = it.get("title", "")  # ex: "File:Foo.jpg"
+        name = ftitle.split(":", 1)[-1]
+        if not name.lower().endswith(EXT_OK):
+            continue
+        out.append(name)
+    return out
+
+
+def licence_credit(filename):
+    """Récupère licence + auteur depuis Commons (best effort)."""
+    try:
+        url = ("https://commons.wikimedia.org/w/api.php?action=query&format=json"
+               "&prop=imageinfo&iiprop=extmetadata&titles=" +
+               urllib.parse.quote("File:" + filename, safe=""))
+        data = http_json(url)
+        pages = data.get("query", {}).get("pages", {})
+        page = next(iter(pages.values()))
+        meta = page["imageinfo"][0]["extmetadata"]
+
+        def clean(v):
+            return re.sub("<[^>]+>", "", v or "").strip()
+        lic = clean(meta.get("LicenseShortName", {}).get("value", "")) or "Wikimedia Commons"
+        art = clean(meta.get("Artist", {}).get("value", ""))
+        return lic, art
+    except Exception:
+        return "Wikimedia Commons", ""
+
+
+def commons_page(filename):
+    return "https://commons.wikimedia.org/wiki/File:" + urllib.parse.quote(filename.replace(" ", "_"), safe="")
+
+
+def filepath_url(filename, width):
+    return ("https://commons.wikimedia.org/wiki/Special:FilePath/" +
+            urllib.parse.quote(filename.replace(" ", "_"), safe="") +
+            "?width=%d" % width)
+
+
+def scan_menus():
+    """menus/<id>.pdf  ->  {id: 'menus/<id>.pdf'}"""
+    out = {}
+    if os.path.isdir(DOSSIER_MENUS):
+        for f in sorted(os.listdir(DOSSIER_MENUS)):
+            if f.lower().endswith(".pdf"):
+                out[os.path.splitext(f)[0]] = "menus/" + f
+    return out
+
+
+def main():
+    os.makedirs(DOSSIER_PHOTOS, exist_ok=True)
+    photos = {}
+    total = 0
+    print("Téléchargement des photos depuis Wikimedia Commons…\n")
+    for pid, wt in WIKITITLE.items():
+        lang, title = wt.split(":", 1)
+        print("• %-16s %s" % (pid, wt))
+        names = media_list(lang, title)
+        if not names:
+            print("    (aucune image trouvée — le bouton proposera un lien)")
+            continue
+        dest = os.path.join(DOSSIER_PHOTOS, pid)
+        os.makedirs(dest, exist_ok=True)
+        liste = []
+        n = 0
+        for name in names:
+            if n >= MAX_PAR_LIEU:
+                break
+            ext = os.path.splitext(name)[1].lower()
+            if ext == ".jpeg":
+                ext = ".jpg"
+            fichier = "%d%s" % (n + 1, ext)
+            chemin = os.path.join(dest, fichier)
+            try:
+                data = http_bytes(filepath_url(name, LARGEUR))
+                if len(data) < 3000:  # vignette cassée / trop petite
+                    continue
+                with open(chemin, "wb") as fh:
+                    fh.write(data)
+            except Exception as e:
+                print("    ! %s : %s" % (name, e))
+                continue
+            lic, art = licence_credit(name)
+            liste.append({
+                "file": "photos/%s/%s" % (pid, fichier),
+                "credit": (art + " — " if art else "") + name,
+                "license": lic,
+                "source": commons_page(name),
+            })
+            n += 1
+            total += 1
+            time.sleep(PAUSE)
+        if liste:
+            photos[pid] = liste
+            print("    %d photo(s) -> %s/" % (len(liste), os.path.relpath(dest, ICI)))
+        time.sleep(PAUSE)
+
+    menus = scan_menus()
+
+    with open(SORTIE, "w", encoding="utf-8") as fh:
+        fh.write("/* Généré par download_media.py — photos téléchargées depuis Wikimedia Commons. */\n")
+        fh.write("window.PHOTOS = " + json.dumps(photos, ensure_ascii=False, indent=2) + ";\n")
+        fh.write("window.MENUS = " + json.dumps(menus, ensure_ascii=False, indent=2) + ";\n")
+
+    print("\nTerminé : %d photos pour %d lieux." % (total, len(photos)))
+    if menus:
+        print("Menus PDF détectés : %s" % ", ".join(menus))
+    print("Fichier écrit : %s" % os.path.relpath(SORTIE, ICI))
+    print("\nPensez à committer  photos/  ,  menus/  et  photos-data.js  dans votre dépôt.")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        sys.exit(1)
