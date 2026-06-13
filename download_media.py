@@ -20,6 +20,8 @@ automatiquement et affichés au clic sur chaque photo).
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import time
 import urllib.error
@@ -32,6 +34,8 @@ LARGEUR = 1024            # largeur demandée (px)
 PAUSE = 1.0               # pause entre requêtes (politesse envers Wikimedia)
 UA = "GeorgieTripMap/1.0 (carte de voyage perso, usage non commercial)"
 EXT_OK = (".jpg", ".jpeg", ".png", ".webp")
+CWEBP = shutil.which("cwebp")   # si présent : enregistre en WebP (plus léger)
+WEBP_Q = 80                     # qualité WebP
 
 ICI = os.path.dirname(os.path.abspath(__file__))
 DOSSIER_PHOTOS = os.path.join(ICI, "photos")
@@ -184,14 +188,26 @@ def main():
             ext = os.path.splitext(name)[1].lower()
             if ext == ".jpeg":
                 ext = ".jpg"
-            fichier = "%d%s" % (n + 1, ext)
-            chemin = os.path.join(dest, fichier)
             try:
                 data = http_bytes(filepath_url(name, LARGEUR))
                 if len(data) < 3000:  # vignette cassée / trop petite
                     continue
-                with open(chemin, "wb") as fh:
-                    fh.write(data)
+                if CWEBP:
+                    fichier = "%d.webp" % (n + 1)
+                    chemin = os.path.join(dest, fichier)
+                    tmp = chemin + ext
+                    with open(tmp, "wb") as fh:
+                        fh.write(data)
+                    try:
+                        subprocess.run([CWEBP, "-quiet", "-q", str(WEBP_Q), tmp, "-o", chemin],
+                                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    finally:
+                        os.remove(tmp)
+                else:
+                    fichier = "%d%s" % (n + 1, ext)
+                    chemin = os.path.join(dest, fichier)
+                    with open(chemin, "wb") as fh:
+                        fh.write(data)
             except Exception as e:
                 print("    ! %s : %s" % (name, e))
                 continue
