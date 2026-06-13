@@ -1,0 +1,3 @@
+.playwright-mcp/
+verify-*.png
+.DS_Store
