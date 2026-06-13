@@ -89,9 +89,37 @@ h1 span{color:var(--lav); font-style:italic; font-weight:500}
 .iti-toggle:hover{background:#fff}
 .iti-toggle::after{content:"▾"; font-size:11px; transition:transform .2s}
 .iti-toggle.open::after{transform:rotate(180deg)}
-.iti-panel{position:absolute; top:58px; right:16px; z-index:3; width:min(380px,calc(100% - 32px)); max-height:calc(100% - 78px); overflow:auto;
-  background:rgba(255,253,248,.98); backdrop-filter:blur(4px); border:1.5px solid var(--line); border-radius:18px; padding:16px 17px;
-  box-shadow:0 20px 50px -22px rgba(27,42,107,.55)}
+/* ---------------- Modale (itinéraire & transferts) ---------------- */
+.modal-overlay{position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center; padding:20px;
+  background:rgba(27,42,107,.30); backdrop-filter:blur(3px); animation:modalFade .18s ease}
+.modal-overlay[hidden]{display:none}
+@keyframes modalFade{from{opacity:0} to{opacity:1}}
+.modal{position:relative; width:min(560px,100%); max-height:88vh; overflow:auto; background:var(--paper);
+  border:1.5px solid var(--line); border-radius:18px; box-shadow:0 30px 70px -25px rgba(27,42,107,.6); animation:modalPop .2s ease}
+@keyframes modalPop{from{transform:translateY(10px) scale(.985); opacity:0} to{transform:none; opacity:1}}
+.modal-head{position:sticky; top:0; z-index:1; display:flex; align-items:center; justify-content:space-between; gap:12px;
+  padding:16px 18px 12px; background:var(--paper); border-bottom:1px solid var(--line)}
+.modal-head h2{font-family:var(--serif); font-weight:600; font-size:21px; color:var(--ink); margin:0}
+.modal-close{flex:none; width:34px; height:34px; border-radius:999px; border:1.5px solid var(--line); background:#fff; color:var(--ink);
+  font-size:15px; line-height:1; cursor:pointer; transition:.15s}
+.modal-close:hover{background:var(--paper2); border-color:var(--faint)}
+.modal-close:focus-visible{outline:2px solid var(--ink2); outline-offset:2px}
+.modal-body{padding:14px 18px 18px}
+.modal-body #itiPanel{margin:2px 0}
+.transfer{margin:0 0 12px}
+.transfer>summary{color:var(--ink); border-color:var(--gold); background:rgba(201,162,75,.12)}
+.transfer>summary:hover{background:rgba(201,162,75,.2)}
+.transfer .disc-body{border-color:rgba(201,162,75,.4)}
+.tf-lead{font-size:13px; line-height:1.55; color:var(--ink2); margin:0 0 10px}
+.tf-list{list-style:none; margin:0 0 10px; padding:0; display:flex; flex-direction:column; gap:9px}
+.tf-list li{display:grid; grid-template-columns:1fr auto; gap:2px 10px; padding-bottom:9px; border-bottom:1px dashed var(--line)}
+.tf-list li:last-child{border-bottom:none; padding-bottom:0}
+.tf-mode{font-family:var(--sans); font-weight:700; font-size:13px; color:var(--ink)}
+.tf-price{font-family:var(--mono); font-size:12.5px; color:var(--coral); text-align:right; white-space:nowrap}
+.tf-price em{color:var(--muted); font-style:normal}
+.tf-note{grid-column:1/-1; font-size:12.3px; line-height:1.5; color:var(--muted)}
+.tf-est{font-size:12.8px; line-height:1.5; color:var(--ink2); background:rgba(201,162,75,.13); border-radius:10px; padding:9px 11px; margin:0 0 11px}
+.tf-disclaimer{font-size:11.5px; color:var(--faint); text-align:center; margin:14px 0 0}
 .iti-intro{font-size:13px; color:var(--ink2); line-height:1.5; padding-bottom:12px; margin-bottom:6px; border-bottom:1px solid var(--line)}
 .iti-list{list-style:none; margin:0; padding:0}
 .iti-list li{display:flex; gap:12px; padding:10px 8px; border-radius:12px}
@@ -188,7 +216,10 @@ h1 span{color:var(--lav); font-style:italic; font-weight:500}
   .top{align-items:flex-start} .now{text-align:left}
   .sectionhead h2{font-size:26px}
   .grid{grid-template-columns:1fr}
-  .iti-panel{width:calc(100% - 32px)}
+  .modal-overlay{padding:10px}
+  .modal{max-height:94vh}
+  .tf-list li{grid-template-columns:1fr; gap:1px}
+  .tf-price{text-align:left}
 }
 /* ============ v2 — bascule nation / ville ============ */
 #nationView,#cityView{position:relative}
@@ -338,8 +369,7 @@ h1 span{color:var(--lav); font-style:italic; font-weight:500}
       <g id="route"></g>
       <g id="markers"></g>
     </svg>
-    <button class="iti-toggle" id="itiToggle" aria-expanded="false" aria-controls="itiPanel">Itinéraire &amp; dates</button>
-    <div class="iti-panel" id="itiPanel" hidden></div>
+    <button class="iti-toggle" id="itiToggle" type="button" aria-expanded="false" aria-haspopup="dialog" aria-controls="itiModal">Itinéraire &amp; dates</button>
     </div><!-- /nationView -->
     <div id="cityView" hidden>
       <div class="cv-bar">
@@ -369,15 +399,60 @@ h1 span{color:var(--lav); font-style:italic; font-weight:500}
       <p id="cityNote"></p>
     </div>
     <div id="cards"></div>
-    <p class="disclaimer">Notes et nombres d’avis : Google Maps (indicatifs). Horaires et tarifs peuvent changer, surtout pour les restaurants — à reconfirmer sur place. Tarifs en GEL (1&nbsp;€ ≈ 3&nbsp;GEL). Le statut « ouvert / fermé » est calculé en temps réel sur l’heure de Tbilissi.</p>
   </section>
 
   <footer class="credits">
     <p>Carte réalisée par <strong>Georges SYSAATH</strong> pour ses amis Daniel, Terence, Eddy, Tatia, Andy, Caroline et Oriane.</p>
-    <p class="credits-sub">Notes &amp; avis : Google (indicatifs) · horaires et tarifs à reconfirmer sur place · 1 € ≈ 3 GEL · photos via Wikimedia Commons.</p>
+    <p class="credits-sub">1 € ≈ 3 GEL</p>
   </footer>
 
 </div>
+
+<!-- Modale : itinéraire & dates + transferts aéroport -->
+<div class="modal-overlay" id="itiModal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="itiModalTitle">
+    <div class="modal-head">
+      <h2 id="itiModalTitle">Itinéraire &amp; dates</h2>
+      <button class="modal-close" id="itiClose" type="button" aria-label="Fermer">✕</button>
+    </div>
+    <div class="modal-body">
+
+      <details class="disc transfer" id="itiArrival">
+        <summary>🛬 Arrivée — Aéroport (TBS) → Logement 1</summary>
+        <div class="disc-body">
+          <p class="tf-lead">Aéroport international de Tbilissi (TBS) → <strong>5 Firdousi St</strong> (vieille ville / Abanotubani). ~17 km, 30–45 min selon le trafic.</p>
+          <ul class="tf-list">
+            <li><span class="tf-mode">Bolt (appli)</span><span class="tf-price">~25–45 GEL <em>· 8–15 €</em></span><span class="tf-note">★ Le plus simple — à commander depuis le terminal (wifi gratuit). 30–35 min. À 7, prévoir 2 voitures.</span></li>
+            <li><span class="tf-mode">Taxi officiel</span><span class="tf-price">~45–55 GEL <em>· 15–18 €</em></span><span class="tf-note">Négocier le prix avant de monter ; plus cher que Bolt.</span></li>
+            <li><span class="tf-mode">Bus N337</span><span class="tf-price">1 GEL <em>· ~0,30 €</em></span><span class="tf-note">1,5 GEL par carte étrangère. ~40–60 min, ~7h–23h. Descendre à la place de la Liberté, puis ~10 min à pied jusqu'à Abanotubani. Carte Metromoney (2 GEL) ou carte sans contact.</span></li>
+            <li><span class="tf-mode">Train</span><span class="tf-price">0,50 GEL <em>· ~0,15 €</em></span><span class="tf-note">Très peu de départs/jour — seulement si l'horaire coïncide. Va à la gare centrale.</span></li>
+          </ul>
+          <p class="tf-est">Budget groupe (7 pers.) : <strong>2 Bolt ≈ 50–90 GEL (~17–30 €)</strong> au total, soit ~3–5 €/pers. En bus : ≈ 7–10 GEL pour tout le monde.</p>
+          <a class="ph-btn tf-btn" href="https://www.google.com/maps/dir/?api=1&amp;origin=Tbilisi+International+Airport&amp;destination=41.6880242,44.8132753&amp;travelmode=driving" target="_blank" rel="noopener">Itinéraire sur Google Maps ↗</a>
+        </div>
+      </details>
+
+      <div id="itiPanel"></div>
+
+      <details class="disc transfer" id="itiDeparture">
+        <summary>🛫 Départ — Logement 2 → Aéroport (TBS)</summary>
+        <div class="disc-body">
+          <p class="tf-lead"><strong>10 Giorgi Shatberashvili St</strong> (Vaké / Saburtalo, côté ouest) → aéroport (TBS). Traversée de la ville, ~20–25 km, 30–40 min selon le trafic.</p>
+          <ul class="tf-list">
+            <li><span class="tf-mode">Bolt (appli)</span><span class="tf-price">~30–50 GEL <em>· 10–17 €</em></span><span class="tf-note">★ Recommandé, surtout avec bagages ou vol tôt. Réserver 15–20 min à l'avance (forte demande le matin). À 7, prévoir 2 voitures.</span></li>
+            <li><span class="tf-mode">Taxi</span><span class="tf-price">~50–60 GEL <em>· 17–20 €</em></span><span class="tf-note">Faire fixer le prix à l'avance.</span></li>
+            <li><span class="tf-mode">Bus N337</span><span class="tf-price">1–2 GEL <em>· ~0,30–0,60 €</em></span><span class="tf-note">Pas direct depuis Vaké : rejoindre un arrêt du 337 (métro → Station Square ou Avlabari, puis bus). Peu pratique avec des bagages.</span></li>
+          </ul>
+          <p class="tf-est">Budget groupe (7 pers.) : <strong>2 Bolt ≈ 60–100 GEL (~20–33 €)</strong> au total.</p>
+          <a class="ph-btn tf-btn" href="https://www.google.com/maps/dir/?api=1&amp;origin=41.7045216,44.7746002&amp;destination=Tbilisi+International+Airport&amp;travelmode=driving" target="_blank" rel="noopener">Itinéraire sur Google Maps ↗</a>
+        </div>
+      </details>
+
+      <p class="tf-disclaimer">Tarifs indicatifs (2026), à reconfirmer sur place · 1 € ≈ 3 GEL.</p>
+    </div>
+  </div>
+</div>
+
 <script src="photos-data.js"></script>
 <script>
 
@@ -1862,14 +1937,27 @@ DATA.forEach(it => { const e = EXTRA[it.id]; if (e) Object.assign(it, e); });
       renderTabs(); renderSectionHead(); renderCards(); applyMapView();
     });
 
-    // panneau itinéraire
+    // modale itinéraire + transferts aéroport
     const itiToggle = document.getElementById("itiToggle");
-    const itiPanel = document.getElementById("itiPanel");
-    itiToggle.addEventListener("click", () => {
-      const open = itiPanel.hasAttribute("hidden");
-      if (open) { itiPanel.removeAttribute("hidden"); itiToggle.setAttribute("aria-expanded", "true"); itiToggle.classList.add("open"); }
-      else { itiPanel.setAttribute("hidden", ""); itiToggle.setAttribute("aria-expanded", "false"); itiToggle.classList.remove("open"); }
-    });
+    const itiModal  = document.getElementById("itiModal");
+    const itiClose  = document.getElementById("itiClose");
+    function openIti() {
+      itiModal.removeAttribute("hidden");
+      itiToggle.setAttribute("aria-expanded", "true");
+      document.body.style.overflow = "hidden";
+      itiClose.focus();
+    }
+    function closeIti() {
+      if (itiModal.hasAttribute("hidden")) return;
+      itiModal.setAttribute("hidden", "");
+      itiToggle.setAttribute("aria-expanded", "false");
+      document.body.style.overflow = "";
+      itiToggle.focus();
+    }
+    itiToggle.addEventListener("click", openIti);
+    itiClose.addEventListener("click", closeIti);
+    itiModal.addEventListener("click", e => { if (e.target === itiModal) closeIti(); });
+    document.addEventListener("keydown", e => { if (e.key === "Escape") closeIti(); });
 
     setInterval(renderClock, 1000);
     setInterval(() => { renderCards(); renderItinerary(tbilisiNow()); }, 60000);
