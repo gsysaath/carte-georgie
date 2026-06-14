@@ -44,6 +44,10 @@ body{
 h1{font-family:var(--serif); font-weight:600; font-size:clamp(38px,6vw,62px); line-height:.95; margin:.12em 0 .06em; letter-spacing:-.01em}
 h1 span{color:var(--lav); font-style:italic; font-weight:500}
 .dates{font-family:var(--serif); font-style:italic; color:var(--ink2); font-size:18px}
+.navlinks{display:flex; flex-wrap:wrap; gap:8px; margin-top:12px}
+.navlinks a{display:inline-flex; align-items:center; gap:6px; font-family:var(--sans); font-weight:600; font-size:13px; color:var(--ink);
+  text-decoration:none; border:1.5px solid var(--line); background:rgba(255,253,248,.92); border-radius:999px; padding:6px 13px; transition:.15s}
+.navlinks a:hover{background:#fff; border-color:var(--coral); color:var(--coral)}
 .now{text-align:right; min-width:210px}
 .clock{font-family:var(--serif); font-size:30px; font-weight:500; letter-spacing:.02em; line-height:1}
 .clock .tz{display:block; font-family:var(--sans); font-size:11.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); margin-top:4px; font-weight:600}
@@ -394,6 +398,7 @@ h1 span{color:var(--lav); font-style:italic; font-weight:500}
       <div class="kicker">Carnet de voyage</div>
       <h1>Géorgie <span>2026</span></h1>
       <div class="dates">16 juin – 4 juillet · 18 nuits, entre amis</div>
+      <div class="navlinks"><a href="phrases.html">🗣️ Phrases utiles</a><a href="glossaire.html">🍽️ Glossaire des plats</a></div>
     </div>
     <div class="now">
       <div class="clock"><span id="clock">--:--</span><span class="tz">heure de Tbilissi</span></div>
