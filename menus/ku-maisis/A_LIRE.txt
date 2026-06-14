@@ -1,0 +1,2 @@
+Photos du menu de ce restaurant -> elles apparaissent dans la fiche (bouton "Menu (photos)"), consultables hors-ligne.
+Nommez-les 1.jpg, 2.jpg ... puis lancez: python3 download_media.py
